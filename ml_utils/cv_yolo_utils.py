@@ -1,13 +1,16 @@
+from typing import List, Dict
+
 import os
-import cv2
 import random
+import numpy as np
+import cv2
 
 
 def create_images_labels_dict(images_path: str,
-                              shuffle: bool = False) -> dict:
+                              shuffle: bool = False) -> Dict[str, str]:
     '''
     Takes images folder path and returns dict where each image
-    corresponds each label and shuffles if True
+    corresponds each label and shuffles if True.
 
     Folder with images should contain folder with labels 
     with name 'labels'.
@@ -29,44 +32,56 @@ def create_images_labels_dict(images_path: str,
     return images_labels_dict
 
 
-def read_bbox_file(label_path):
+def read_yolo_bbox_file(label_path: str) -> List[List[float]]:
     '''
-    Reads file with bboxes and returns list with bboxes'''
-    std_bboxes = []
+    Reads file with yolo bboxes and returns list with lists with bboxes.
+    '''
+    # Create list for storing bboxes
+    yolo_bboxes = []
 
+    # Read label file, create list with bbox and add to yolo_bboxes list
     with open(label_path, 'r') as lab:
         for line in lab:
-            bbox = [float(i) for i in line.split()][1:]
-            std_bboxes.append(bbox)
-    return std_bboxes
+            yolo_bbox = [float(i) for i in line.split()][1:]
+            yolo_bboxes.append(yolo_bbox)
+
+    return yolo_bboxes
 
 
-def get_min_and_max_coords(bbox,
-                           image_width,
-                           image_height):
-    """Takes yolo format bboxes and returns start point and end point"""
+def get_min_and_max_coords(bbox: List[float],
+                           image_width: int,
+                           image_height: int) -> tuple[tuple[int, int], tuple[int, int]]:
+    """
+    Takes list with yolo bbox, transform it to OpenCV format 
+    (start point and end points) and returns tuple with 
+    (xmin, ymin), (xmax, ymax) values.
+    """
 
     # Extracting each point from labels
     center_x = bbox[0] * image_width
     center_y = bbox[1] * image_height
-    width = bbox[2] * image_width
-    height = bbox[3] * image_height
+    bbox_width = bbox[2] * image_width
+    bbox_height = bbox[3] * image_height
 
-    # Converting points to opencv format
-    xmin = int(center_x - (width / 2))
-    ymin = int(center_y - (height / 2))
-    xmax = int(center_x + (width / 2))
-    ymax = int(center_y + (height / 2))
+    # Converting points to OpenCV format
+    xmin = int(center_x - (bbox_width / 2))
+    ymin = int(center_y - (bbox_height / 2))
+    xmax = int(center_x + (bbox_width / 2))
+    ymax = int(center_y + (bbox_height / 2))
 
     return (xmin, ymin), (xmax, ymax)
 
 
-def draw_rectangle(image,
-                   start_point,
-                   end_point,
-                   bbox_color=(255, 255, 255),
-                   thickness=2):
-    """Draws rectangles"""
+def draw_rectangle(image: np.ndarray,
+                   start_point: tuple[int, int],
+                   end_point: tuple[int, int],
+                   bbox_color: tuple[int] = (255, 0, 0),
+                   thickness: int = 2) -> np.ndarray:
+    '''
+    Takes image array, start point and end OpenCV points
+    and draws rectangle on image with specific color and 
+    thickness.
+    '''
 
     # Drawing rectangle on an image
     image = cv2.rectangle(image, start_point, end_point,
@@ -75,31 +90,32 @@ def draw_rectangle(image,
     return image
 
 
-def visualize_bbox(data_path='raw-data', show_only_mul_ob=False):
+def visualize_bbox(data_path: str,
+                   show_only_mul_ob: bool = False) -> np.ndarray:
     '''
-    Takes folder with images and labels and visualizes it
+    Takes data folder path that contains images and labels folder,
+    iterating through each image and label, reads it, processes,
+    shows visualization and returns processed image.
     '''
-
-    # Creating paths with images and labels
+    # Creating paths with images and labels folders
     images_path = os.path.join(data_path, 'images')
     labels_path = os.path.join(data_path, 'labels')
 
-    # Iterating through each images and labels
+    # Iterating through each image_name and label_name
     for image_name, label_name in create_images_labels_dict(images_path=images_path,
                                                             shuffle=True).items():
-        print(image_name, label_name)
-        # Creating paths with labels
+        # Creating full paths with image and label
+        image_full_path = os.path.join(images_path, image_name)
         label_full_path = os.path.join(labels_path, label_name)
 
-        # Extracting bboxes from text files
-        std_bboxes = read_bbox_file(label_full_path)
+        # Extracting yolo bboxes from text files
+        std_bboxes = read_yolo_bbox_file(label_full_path)
 
         # Show only images with multiple objects
         if show_only_mul_ob and len(std_bboxes) in [0, 1]:
             continue
 
-        # Creating paths with images and read images
-        image_full_path = os.path.join(images_path, image_name)
+        # Read image and extrach image_height and image_width
         image = cv2.imread(image_full_path)
         image_height, image_width = image.shape[:2]
 
@@ -109,62 +125,77 @@ def visualize_bbox(data_path='raw-data', show_only_mul_ob=False):
                 bbox, image_width, image_height)
             image = draw_rectangle(image, start_point, end_point)
 
+        # Resize image keeping aspect ratio
         image = cv2.resize(image, (1280, 720))
-        cv2.imshow('Image with Polygons', image)
-        cv2.waitKey(0)
+        cv2.imshow('Bbox Visualizer', image)
+
+        # Break if ['q', 'Q'] is pressed
+        if cv2.waitKey(10) in [ord('q'), ord['Q']]:
+            break
+
+    return image
 
 
-def check_image_label_pairs(images_folder, labels_folder):
-    images = [img for img in os.listdir(
-        images_folder) if img.endswith(('.jpg', '.png'))]
-    labels = [label for label in os.listdir(
-        labels_folder) if label.endswith('.txt')]
+def check_image_label_pairs(data_path: str) -> int:
+    '''
+    Iterates through images and labels and checks 
+    if label pair is missing for image.
+    '''
+    # Creating paths with images and labels folders
+    images_path = os.path.join(data_path, 'images')
+    labels_path = os.path.join(data_path, 'labels')
 
-    for image in images:
-        image_name = os.path.splitext(image)[0]
-        label_name = image_name + '.txt'
-        if label_name not in labels:
-            print(f"Label missing for image: {image}")
+    # Listdir images names
+    images_names = [img for img in os.listdir(
+        images_path) if img.endswith(('.jpg', '.png'))]
+    labels_names = [label for label in os.listdir(
+        labels_path) if label.endswith('.txt')]
+
+    # Create counter for missing labels
+    missing_labels_counter = 0
+
+    # Iterating through images_names and check if it has label pair
+    for image_name in images_names:
+        image_name_split = os.path.splitext(image_name)[0]
+        label_name = image_name_split + '.txt'
+        if label_name not in labels_names:
+            print(f"Label missing for image: {image_name}")
+
+    print(f"{missing_labels_counter} images have not label pair.")
+
+    return missing_labels_counter
 
 
-def modify_label_files(folder_path):
+def modify_label_files(folder_path: str,
+                       allow_class_labels: List[int] = [0]) -> None:
+    '''
+    Iterates through each yolo label bbox file, checks if 
+    class in allow_class_labels and change it to 0 if not.
+    '''
     # List all .txt files in the folder
     txt_files = [f for f in os.listdir(folder_path) if f.endswith('.txt')]
 
     # Iterate through the .txt files
-    for file in txt_files:
-        # Read the content of the file
-        full_file_path = os.path.join(folder_path, file)
-        with open(full_file_path, 'r') as file_content:
-            lines = file_content.readlines()
+    for file_name in txt_files:
+        # Create full file path
+        full_file_path = os.path.join(folder_path, file_name)
 
-        # Modify the content of the file
-        for i, line in enumerate(lines):
-            if line.split()[0] != '0':
-                lines[i] = '0 ' + line.split(None, 1)[1]
+        # Read the content of the file and change class if it is not starts with allow_class_labels
+        with open(full_file_path, 'r') as file:
+            lines = file.readlines()
+            # Modify the content of the file
+            for i, line in enumerate(lines):
+                if int(line.split()[0]) not in allow_class_labels:
+                    print(
+                        f"Not all lines in {file_name} start with allow class labels.")
+                    lines[i] = '0 ' + line.split(None, 1)[1]
 
         # Write the modified content back to the file
-        with open(full_file_path, 'w') as file_content:
-            file_content.writelines(lines)
-
-
-def check_lines_start_with_0(folder_path):
-    for file in os.listdir(folder_path):
-        if file.endswith('.txt'):
-            full_file_path = os.path.join(folder_path, file)
-            with open(full_file_path, 'r') as f:
-                lines = f.readlines()
-                all_lines_start_with_0 = all(
-                    line.startswith('0') for line in lines)
-                if not all_lines_start_with_0:
-                    print(f"Not all lines in {file} start with a 0.")
+        with open(full_file_path, 'w') as file:
+            file.writelines(lines)
 
 
 def main():
-    # visualize_bbox(data_path='data', show_only_mul_ob=False)
-    # check_image_label_pairs('data/images', 'data/labels')
-    # modify_label_files('data/labels')
-    check_lines_start_with_0('data/labels')
     pass
 
 
