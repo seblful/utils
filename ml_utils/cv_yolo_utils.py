@@ -40,8 +40,8 @@ def read_yolo_bbox_file(label_path: str) -> List[List[float]]:
     yolo_bboxes = []
 
     # Read label file, create list with bbox and add to yolo_bboxes list
-    with open(label_path, 'r') as lab:
-        for line in lab:
+    with open(label_path, 'r') as file:
+        for line in file:
             yolo_bbox = [float(i) for i in line.split()][1:]
             yolo_bboxes.append(yolo_bbox)
 
@@ -126,14 +126,48 @@ def visualize_bbox(data_path: str,
             image = draw_rectangle(image, start_point, end_point)
 
         # Resize image keeping aspect ratio
-        image = cv2.resize(image, (1280, 720))
+        # image = cv2.resize(image, (1280, 720))
+        image = resize_image_with_padding(image, (640, 640))
         cv2.imshow('Bbox Visualizer', image)
 
         # Break if ['q', 'Q'] is pressed
-        if cv2.waitKey(10) in [ord('q'), ord['Q']]:
+        if cv2.waitKey(0) in [ord('q'), ord('Q')]:
             break
 
     return image
+
+
+def resize_image_with_padding(image: np.ndarray,
+                              shape_out: tuple[int, int],
+                              padding: bool = True,
+                              tiny_float: float = 1e-5) -> np.ndarray:
+    """
+    Resizes an image to the specified size, adding padding 
+    to preserve the aspect ratio and returns the image.
+    """
+    # Calculate resize ratio
+    if image.ndim == 3 and len(shape_out) == 2:
+        shape_out = [*shape_out, 3]
+    hw_out, hw_image = [np.array(x[:2]) for x in (shape_out, image.shape)]
+    resize_ratio = np.min(hw_out / hw_image)
+    hw_wk = (hw_image * resize_ratio + tiny_float).astype(int)
+
+    # Resize the image
+    resized_image = cv2.resize(
+        image, tuple(hw_wk[::-1]), interpolation=cv2.INTER_NEAREST
+    )
+    if not padding or np.all(hw_out == hw_wk):
+        return resized_image
+
+    # Create a black image with the target size
+    padded_image = np.zeros(shape_out, dtype=np.uint8)
+
+    # Calculate the number of rows/columns to add as padding
+    dh, dw = (hw_out - hw_wk) // 2
+    # Add the resized image to the padded image, with padding on the left and right sides
+    padded_image[dh: hw_wk[0] + dh, dw: hw_wk[1] + dw] = resized_image
+
+    return padded_image
 
 
 def check_image_label_pairs(data_path: str) -> int:
@@ -196,7 +230,7 @@ def modify_label_files(folder_path: str,
 
 
 def main():
-    pass
+    visualize_bbox('data')
 
 
 if __name__ == '__main__':
